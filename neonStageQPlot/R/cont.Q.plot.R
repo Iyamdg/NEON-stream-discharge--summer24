@@ -47,13 +47,30 @@
 #   Zachary L. Nickerson (2023-02-13)
 #     updates to add clarity to the identification and interpretation of 3x median discharge
 ##############################################################################################
+library(DBI)
+library(RPostgres)
+library(dplyr)
+library(plotly)
+
+
+
+con<-DBI::dbConnect(
+  RPostgres::Postgres(),
+  dbname = 'openflow',
+  host = 'nonprod-commondb.gcp.neoninternal.org',
+  port = '5432',
+  user = 'shiny_openflow_rw',
+  password = Sys.getenv('DB_TOKEN')
+)
+
+
 base::options(stringsAsFactors = F)
 utils::globalVariables(c('histMedQ','meanURemnUnc','meanLRemnUnc','meanUParaUnc','meanLParaUnc','meanQ','streamDischarge','meanUHUnc','meanLHUnc','meanH','gaugeHeight','gauge_Height','priPrecipBulkLoUnc','priPrecipBulkUpUnc','priPrecipBulk','secPrecipBulkLoUnc','secPrecipBulkUpUnc','secPrecipBulk'))
 
 cont.Q.plot <-function(site.id,
                        start.date,
                        end.date,
-                       input.list,
+                       con,
                        plot.imp.unit=F,
                        mode.dark=F,
                        # plot.final.QF=F,
@@ -71,17 +88,49 @@ cont.Q.plot <-function(site.id,
   if(base::missing(end.date)){
     stop('must provide end.date for plotting continuous discharge')
   }
-  if(base::missing(input.list)){
-    stop('must provide input.list for plotting continuous discharge')
+  if(base::missing(con)){
+    stop('must provide DB con for plotting continuous discharge')
   }
   
+  # Read in data from the database
+  #contqsum <- dbReadTable(con, "contqsum")
+  #sitelist <- dbReadTable(con, "sitelist")
+  #histmedq <- dbReadTable(con, "histmedq")
+  
+  
+  # parameters
+  siteID <- 'COMO'
+  startDate <- '2023-05-01'
+  endDate <- '2023-06-30'
+  
+  # Create and send the SQL query
+  contqsum <- dbSendQuery(con, "SELECT * FROM contqsum WHERE \"siteID\" = 'COMO' AND \"date\" BETWEEN '2023-05-01' AND '2023-06-30'")
+  contqsum <- dbFetch(contqsum)
+  print(contqsum)
+  dbListFields(con, "contqsum")
+  dbListFields(con, "histmedq")
+  # Fetch all results
+  data <- dbFetch(result)
+  
+  # Clear the result
+  dbClearResult(result)
+  
+  # Use the data as needed
+  print(data)
+  contqsum <- dbSendQuery(con, "SELECT * FROM contqsum WHERE siteID = COMO and  ")
+  
+  
+  
   # Get data
-  continuousDischarge_sum <- input.list$continuousDischarge_sum%>%
+  continuousDischarge_sum <- contqsum %>%
+    dplyr::left_join(histmedq, by = c("siteID", "monthDay")) %>%
     dplyr::filter(!is.na(meanQ))
-  isPrimaryPtp <- input.list$precipitationSite$isPrimaryPtp
-  precipSiteID <- input.list$precipitationSite$gaugeID
-  histMedQMinYear <- input.list$histMedQYearRange$minYear
-  histMedQMaxYear <- input.list$histMedQYearRange$maxYear
+  isPrimaryPtp <- contqsum$priPrecipBulk
+  precipSiteID <- sitelist$ptpSite
+  histMedQMinYear <- histmedq$minYear
+  histMedQMaxYear <- histmedq$maxYear
+  
+  
   
   #3x internal dataGet#
   if(plot.q.stats){
@@ -103,21 +152,21 @@ cont.Q.plot <-function(site.id,
   if(plot.imp.unit){
     continuousDischarge_sum <- continuousDischarge_sum %>%
       dplyr::mutate(#Discharge
-                    histMedQ = histMedQ*convLPStoCFS,
-                    meanURemnUnc = meanURemnUnc*convLPStoCFS,
-                    meanLRemnUnc = meanLRemnUnc*convLPStoCFS,
-                    meanUParaUnc = meanUParaUnc*convLPStoCFS,
-                    meanLParaUnc = meanLParaUnc*convLPStoCFS,
-                    meanQ = meanQ*convLPStoCFS,
-                    streamDischarge = streamDischarge*convLPStoCFS,
-                    dischargeFinalQFSciRvw = dischargeFinalQFSciRvw*convLPStoCFS,
-                    #Stage
-                    meanUHUnc = meanUHUnc*convMtoFt,
-                    meanLHUnc = meanLHUnc*convMtoFt,
-                    meanH = meanH*convMtoFt,
-                    gaugeHeight = gaugeHeight*convMtoFt,
-                    gauge_Height = gauge_Height*convMtoFt)
-
+        histMedQ = histMedQ*convLPStoCFS,
+        meanURemnUnc = meanURemnUnc*convLPStoCFS,
+        meanLRemnUnc = meanLRemnUnc*convLPStoCFS,
+        meanUParaUnc = meanUParaUnc*convLPStoCFS,
+        meanLParaUnc = meanLParaUnc*convLPStoCFS,
+        meanQ = meanQ*convLPStoCFS,
+        streamDischarge = streamDischarge*convLPStoCFS,
+        dischargeFinalQFSciRvw = dischargeFinalQFSciRvw*convLPStoCFS,
+        #Stage
+        meanUHUnc = meanUHUnc*convMtoFt,
+        meanLHUnc = meanLHUnc*convMtoFt,
+        meanH = meanH*convMtoFt,
+        gaugeHeight = gaugeHeight*convMtoFt,
+        gauge_Height = gauge_Height*convMtoFt)
+    
     #Precipitation
     if(!base::is.null(isPrimaryPtp)){
       if(isPrimaryPtp){
@@ -324,3 +373,9 @@ cont.Q.plot <-function(site.id,
   
   return(method)
 }
+
+cont.Q.plot(site.id = "COMO",
+            start.date = "2023-05-01",
+            end.date = "2023-06-30",
+            con = con)
+
