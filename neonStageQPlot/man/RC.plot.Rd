@@ -12,9 +12,6 @@ app user [string]}
 \item{end.date}{Required: Search interval end date (YYYY-MM-DD) selected by the shiny app
 user [string]}
 
-\item{input.list}{Required: List containing the data used in plotting; this list should be
-the outputs from neonStageQPlot::get.cont.Q.NEON.API [list]}
-
 \item{plot.imp.unit}{Defaults to FALSE: Idicator of plotting data in metric or imperial
 units [boolean]}
 

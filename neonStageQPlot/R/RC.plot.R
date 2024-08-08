@@ -17,8 +17,6 @@
 #' app user [string]
 #' @param end.date Required: Search interval end date (YYYY-MM-DD) selected by the shiny app
 #' user [string]
-#' @param input.list Required: List containing the data used in plotting; this list should be
-#' the outputs from neonStageQPlot::get.cont.Q.NEON.API [list]
 #' @param plot.imp.unit Defaults to FALSE: Idicator of plotting data in metric or imperial
 #' units [boolean]
 #' @param mode.dark Defaults to FALSE: Indicator of plotting data in light or dark mode. NOTE:
@@ -47,9 +45,10 @@ utils::globalVariables(c("curveID","Hgrid","maxPostQ","pramUTop","pramUBottom","
 RC.plot <-function(site.id,
                    start.date,
                    end.date,
-                   input.list,
+                   # input.list,
                    plot.imp.unit=F,
-                   mode.dark=F){
+                   mode.dark=F
+                   ){
 
   if(base::missing(site.id)){
     stop('must provide site.id for plotting continuous discharge')
@@ -60,20 +59,36 @@ RC.plot <-function(site.id,
   if(base::missing(end.date)){
     stop('must provide end.date for plotting continuous discharge')
   }
-  if(base::missing(input.list)){
-    stop('must provide input.list for plotting continuous discharge')
-  }
+  # if(base::missing(input.list)){
+  #   stop('must provide input.list for plotting continuous discharge')
+  # }
 
+  # Connect to openflow database
+  con<-DBI::dbConnect(
+    RPostgres::Postgres(),
+    dbname = 'openflow',
+    host = 'nonprod-commondb.gcp.neoninternal.org',
+    port = '5432',
+    user = 'shiny_openflow_rw',
+    password = Sys.getenv('DB_TOKEN')
+  )
+  
   # Get data
-  curveIDs <- input.list[[2]]
+  startDateFormat <- format(as.POSIXct(start.date),"%Y-%m-%d 00:00:00")
+  endDateFormat <- format(as.POSIXct(end.date)+86400,"%Y-%m-%d 00:00:00")
+  dbquery <- sprintf("SELECT * FROM contqsum WHERE \"siteID\" = '%s' AND \"date\" > timestamp '%s' AND \"date\" < timestamp '%s'",site.id,startDateFormat,endDateFormat)
+  contqsum <- DBI::dbSendQuery(con,dbquery)
+  contqsum <- DBI::dbFetch(contqsum)
+  curveIDs <- unique(contqsum$curveID)
 
   if(base::all(!base::is.na(curveIDs))){
-    rcPlotData <- base::readRDS(base::url("https://raw.githubusercontent.com/NEONScience/NEON-stream-discharge/main/shiny-openFlow/rcPlottingData.rds","rb"))
-    rcData <- rcPlotData$rcData%>%
-      dplyr::filter(curveID%in%curveIDs)
-    rcGaugings <- rcPlotData$rcGaugings%>%
-      dplyr::filter(curveID%in%curveIDs)
-
+    dbquery <- sprintf("SELECT * FROM rcdata WHERE \"curveID\" IN ('%s')",paste0(curveIDs,collapse = "', '"))
+    rcdata <- DBI::dbSendQuery(con,dbquery)
+    rcData <- DBI::dbFetch(rcdata)
+    dbquery <- sprintf("SELECT * FROM rcgaugings WHERE \"curveID\" IN ('%s')",paste0(curveIDs,collapse = "', '"))
+    rcgaugings <- DBI::dbSendQuery(con,dbquery)
+    rcGaugings <- DBI::dbFetch(rcgaugings)
+    
     # Add each rating curve based on the vector of unique rating curve IDs
     for(i in 1:base::length(base::unique(rcData$curveID))){
       currentCurveID <- base::unique(rcData$curveID)[i]

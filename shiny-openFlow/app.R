@@ -53,6 +53,8 @@ library(bslib)
 library(shinyalert)
 library(devtools)
 library(markdown)
+library(DBI)
+library(RPostgres)
 if(!require(neonStageQplot)){
   devtools::install_github(repo = "NEONScience/NEON-stream-discharge/neonStageQPlot", dependencies = TRUE, force = TRUE)
   library(neonStageQplot)
@@ -62,10 +64,19 @@ if(!require(neonStageQplot)){
 
   #global ----
 
-  # Read in reference table from Github
-  # setwd("~/Github/NEON-stream-discharge/L4Discharge/AOSApp") # Code for testing locally - comment out when running app
-  #Global Vars
+  # Connect to openflow database
+  con<-DBI::dbConnect(
+    RPostgres::Postgres(),
+    dbname = 'openflow',
+    host = 'nonprod-commondb.gcp.neoninternal.org',
+    port = '5432',
+    user = 'shiny_openflow_rw',
+    password = Sys.getenv('DB_TOKEN')
+  )
+
+  # Read in metadata table from openflow database 
   productList <- readr::read_csv(base::url("https://raw.githubusercontent.com/NEONScience/NEON-stream-discharge/main/shiny-openFlow/aqu_dischargeDomainSiteList.csv"))
+  productList <- DBI::dbReadTable(con,"sitelist")
   siteID <- NULL
   domainID <- NULL
   
@@ -91,7 +102,7 @@ if(!require(neonStageQplot)){
   
   light <- bslib::bs_theme(version = 4,bootswatch = "flatly")
   dark <- bslib::bs_theme(version = 4,bootswatch = "darkly")
-
+  
   # User Interface ----
   ui <- shiny::fluidPage(title = 'openFlow',
                          theme = bslib::bs_theme(version = 4),
@@ -234,7 +245,6 @@ if(!require(neonStageQplot)){
     
     # Download data, create summary table, and save output
     getPackage <- shiny::eventReactive(input$submit,{
-      
       # # Manually set input variables for local testing - comment out when running app
       # input <- base::list()
       # input$siteId <- "MCRA"
@@ -285,24 +295,24 @@ if(!require(neonStageQplot)){
       #   stop("Requested time period must be no more than 90 days")
       # }
       
-      #progress bar for data downloads
-      shiny::withProgress(message = 'Submit',detail = '', min = 0, max = 1 ,value = 0, {
-
-        shiny::incProgress(amount = 0.50,
-                           message = "Pulling data from neonUtilities",
-
-                           detail = NULL,
-                           session = shiny::getDefaultReactiveDomain())
-        base::Sys.sleep(0.25)
-
-        # Download and process NEON data
-        continuousDischarge_list <- neonStageQplot::get.cont.Q.NEON.API(site.id = siteID,
-                                                                        start.date = startDate,
-                                                                        end.date = endDate,
-                                                                        api.token = apiToken,
-                                                                        include.q.stats = include.q.stats)
-
-      })#end of withProgress
+      # #progress bar for data downloads
+      # shiny::withProgress(message = 'Submit',detail = '', min = 0, max = 1 ,value = 0, {
+      # 
+      #   shiny::incProgress(amount = 0.50,
+      #                      message = "Pulling data from neonUtilities",
+      # 
+      #                      detail = NULL,
+      #                      session = shiny::getDefaultReactiveDomain())
+      #   base::Sys.sleep(0.25)
+      # 
+      #   # Download and process NEON data
+      #   continuousDischarge_list <- neonStageQplot::get.cont.Q.NEON.API(site.id = siteID,
+      #                                                                   start.date = startDate,
+      #                                                                   end.date = endDate,
+      #                                                                   api.token = apiToken,
+      #                                                                   include.q.stats = include.q.stats)
+      # 
+      # })#end of withProgress
       
 
     },ignoreInit = T)# End getPackage
@@ -316,85 +326,88 @@ if(!require(neonStageQplot)){
       whichTab$currentTab = input$selectedTab
     })
 
-    # Plotting continuous discharge with uncertainty
-    output$plot1 <- plotly::renderPlotly({
+    shiny::observeEvent(input$submit,{
+      print(Sys.time())
+      # Plotting continuous discharge with uncertainty
+      output$plot1 <- plotly::renderPlotly({
+        
+        # # Unpack the data frame from getPackage
+        # continuousDischarge_list <- getPackage()
+        
+        # Format QF inputs
+        # if(input$qctrFlag == TRUE){
+        #   finalQfInput <- T
+        # }else{
+        #   finalQfInput <- F
+        # }
+        if(input$qctrFlagScRv == TRUE){
+          sciRvwQfInput <- T
+        }else{
+          sciRvwQfInput <- F
+        }
+        # if(input$precipQctrFlag == TRUE){
+        #   precipQctrFlag <- T
+        # }else{
+        #   precipQctrFlag <- F
+        # }
+        # if(input$precipQctrFlagScRv == TRUE){
+        #   precipQctrFlagScRv <- T
+        # }else{
+        #   precipQctrFlagScRv <- F
+        # }
+        if(input$dark_mode == TRUE){
+          darkModeInput <- T
+        }else{
+          darkModeInput <- F
+        }
+        if(input$impUnitFlag == TRUE){
+          impUnitInput <- T
+        }else{
+          impUnitInput <- F
+        }
+        
+        # Plot continuous discharge and store in output
+        plots$plot.cont.Q <- neonStageQplot::cont.Q.plot(site.id = input$siteId,
+                                                         start.date = input$dateRange[[1]],
+                                                         end.date = input$dateRange[[2]],
+                                                         # input.list = continuousDischarge_list,
+                                                         plot.imp.unit = impUnitInput,
+                                                         mode.dark = darkModeInput,
+                                                         # plot.final.QF = finalQfInput,
+                                                         plot.sci.rvw.QF = sciRvwQfInput,
+                                                         # plot.precip.final.QF = precipQctrFlag,
+                                                         # plot.precip.sci.rvw.QF = precipQctrFlagScRv,                                          
+                                                         plot.q.stats = include.q.stats)
+      })# End plot1
 
-      # Unpack the data frame from getPackage
-      continuousDischarge_list <- getPackage()
-
-      # Format QF inputs
-      # if(input$qctrFlag == TRUE){
-      #   finalQfInput <- T
-      # }else{
-      #   finalQfInput <- F
-      # }
-      if(input$qctrFlagScRv == TRUE){
-        sciRvwQfInput <- T
-      }else{
-        sciRvwQfInput <- F
-      }
-      # if(input$precipQctrFlag == TRUE){
-      #   precipQctrFlag <- T
-      # }else{
-      #   precipQctrFlag <- F
-      # }
-      # if(input$precipQctrFlagScRv == TRUE){
-      #   precipQctrFlagScRv <- T
-      # }else{
-      #   precipQctrFlagScRv <- F
-      # }
-      if(input$dark_mode == TRUE){
-        darkModeInput <- T
-      }else{
-        darkModeInput <- F
-      }
-      if(input$impUnitFlag == TRUE){
-        impUnitInput <- T
-      }else{
-        impUnitInput <- F
-      }
-      
-      # Plot continuous discharge and store in output
-      plots$plot.cont.Q <- neonStageQplot::cont.Q.plot(site.id = input$siteId,
-                                                       start.date = input$dateRange[[1]],
-                                                       end.date = input$dateRange[[2]],
-                                                       input.list = continuousDischarge_list,
-                                                       plot.imp.unit = impUnitInput,
-                                                       mode.dark = darkModeInput,
-                                                       # plot.final.QF = finalQfInput,
-                                                       plot.sci.rvw.QF = sciRvwQfInput,
-                                                       # plot.precip.final.QF = precipQctrFlag,
-                                                       # plot.precip.sci.rvw.QF = precipQctrFlagScRv,                                          
-            											                     plot.q.stats = include.q.stats)
-    })# End plot1
-
-    # Plotting rating curve(s) with uncertainty
-    output$plot2 <- plotly::renderPlotly({
-
-      # Unpack the list of curve IDs from getPackage
-      continuousDischarge_list <- getPackage()
-
-      #format flags
-      if(input$dark_mode == TRUE){
-        darkModeInput <- T
-      }else{
-        darkModeInput <- F
-      }
-      if(input$impUnitFlag == TRUE){
-        impUnitInput <- T
-      }else{
-        impUnitInput <- F
-      }
-      
-      # Plot rating curve(s) and store in outputs
-      plots$plot.RC <- neonStageQplot::RC.plot(site.id = input$siteId,
-                                               start.date = input$dateRange[[1]],
-                                               end.date = input$dateRange[[2]],
-                                               input.list = continuousDischarge_list,
-                                               plot.imp.unit = impUnitInput,
-                                               mode.dark = darkModeInput)
-    })# End plot2
-
+      # Plotting rating curve(s) with uncertainty
+      output$plot2 <- plotly::renderPlotly({
+  
+        # # Unpack the list of curve IDs from getPackage
+        # continuousDischarge_list <- getPackage()
+  
+        #format flags
+        if(input$dark_mode == TRUE){
+          darkModeInput <- T
+        }else{
+          darkModeInput <- F
+        }
+        if(input$impUnitFlag == TRUE){
+          impUnitInput <- T
+        }else{
+          impUnitInput <- F
+        }
+        
+        # Plot rating curve(s) and store in outputs
+        plots$plot.RC <- neonStageQplot::RC.plot(site.id = input$siteId,
+                                                 start.date = input$dateRange[[1]],
+                                                 end.date = input$dateRange[[2]],
+                                                 # input.list = continuousDischarge_list,
+                                                 plot.imp.unit = impUnitInput,
+                                                 mode.dark = darkModeInput)
+      })# End plot2
+    })# End observeEvent
+    
     #download handler for plotly download functionality
     output$downloadPlotly <- shiny::downloadHandler(
       filename = function() {
